@@ -16,7 +16,7 @@
 
 
 
-## Network Topology (ASCII Diagram)
+## Network Topology
 > **All steps assume you're running VMware Fusion on macOS, with both the Ubuntu Gateway and Windows 11 VM hosted in the same virtual environment.**
 
 ```text

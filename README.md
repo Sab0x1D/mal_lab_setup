@@ -1,4 +1,5 @@
 # Malware Lab Environment Setup [Ubuntu-gateway | Windows11-lab]
+![](/images/img5.png)
 
 > **Note:** This gateway configuration is intended for malware analysts and researchers who prefer to work with *live malware samples* in order to capture real IOCs, observe C2 behavior, and conduct full traffic analysis.  
 >

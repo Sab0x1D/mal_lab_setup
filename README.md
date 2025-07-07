@@ -293,7 +293,7 @@ fi
 
 ## 6. Optional Tools Installed
 
-> **Purpose:** Supplement the Ubuntu Gateway with helpful utilities like `tcpdump` for packet capture and optionally `ufw` (though ultimately removed to avoid interference with `iptables`).
+> Supplement the Ubuntu Gateway with helpful utilities like `tcpdump` for packet capture and optionally `ufw` (though ultimately removed to avoid interference with `iptables`).
 
 ```bash
 sudo apt update
@@ -304,9 +304,20 @@ sudo apt install tcpdump ufw
 
 ---
 
+### Reboot:
+> **Purpose:** This step serves as a test to see if all we did so far is persistent after every reboot, and working as intended.
+
+```bash
+sudo reboot
+```
+
+---
+
 ## 7. Reset Instructions — Start Fresh If Something Breaks
 
-> **Purpose:** Provide a complete rollback procedure to wipe all custom configurations and scripts in case of misconfiguration or testing reset.
+> Provide a complete rollback procedure to wipe all custom configurations and scripts in case of misconfiguration or testing reset.
+>
+> This step is optional, unless what you did so far is just not working and you wish to purge all settings/pre-sets you did so far, and wanting to start from scratch.
 
 ### Flush iptables:
 
@@ -358,11 +369,8 @@ sudo reboot
 
 ## 8. Windows VM Setup Guide
 
-This section details how to configure and prepare the Windows 11 VM for malware analysis in a tightly controlled environment. Each step below includes notes on its purpose and how it contributes to the overall lab setup.
+> The Windows malware lab VM runs on **VMware for macOS** and uses **Windows 11 Pro arm64**. This section outlines required system prep, networking setup, and hardening bypasses to ensure samples can run unhindered while routing traffic through the Ubuntu Gateway, yet in a tightly controlled environment.
 
-The Windows malware lab VM (Str4yVM) runs on **VMware for macOS** and uses **Windows 11 Pro arm64**. This section outlines required system prep, networking setup, and hardening bypasses to ensure samples can run unhindered while routing traffic through the Ubuntu Gateway.
-
-```
 
 #### Verify Ubuntu Has Two Adapters
 - `ens33` → NAT for internet
@@ -376,7 +384,7 @@ The Windows malware lab VM (Str4yVM) runs on **VMware for macOS** and uses **Win
 
 ### Networking Setup (Windows 11):
 
-> **Purpose:** Ensure the Windows VM has a static identity and reliable access to the Ubuntu Gateway without relying on DHCP or external DNS.
+> Ensure the Windows VM has a static identity and reliable access to the Ubuntu Gateway without relying on DHCP or external DNS.
 
 #### Step 1: Set Static IP
 1. Go to **Settings** → **Network & Internet** → **Ethernet** → `LabNet` (host-only adapter)
@@ -389,7 +397,7 @@ The Windows malware lab VM (Str4yVM) runs on **VMware for macOS** and uses **Win
 
 
 Settings → Ethernet → IP Settings → Manual → IPv4 → Enter Static IPs
-```
+
 
 #### Step 2: Disable IPv6
 
@@ -403,7 +411,6 @@ Settings → Ethernet → IP Settings → Manual → IPv4 → Enter Static IPs
 
 Control Panel → Windows Defender Firewall → Turn Off
 
-````
 
 1. Set a **static IP** in the same subnet as the Ubuntu gateway:
    - Example: `10.37.129.50`
@@ -413,11 +420,198 @@ Control Panel → Windows Defender Firewall → Turn Off
 2. Disable IPv6 (optional, for simplicity)
 3. Disable Windows Firewall (Control Panel → Windows Defender Firewall → Turn off for both profiles)
 
-### Security Hardening Removal
+### Security Hardening Removal Script
 
 > **Purpose:** Remove or disable Windows features that interfere with malware execution, analysis, or persistence testing.
 
 Use the provided Python script: `debloat_gui_verbose.py`, which launches a GUI tool with admin elevation for security and telemetry removal.
+> 💡 Ensure Python is installed (can be via Microsoft Store or standalone installer). You may also want to take a snapshot just before this step to roll back if needed.
+
+```bash
+import ctypes
+import subprocess
+import sys
+import threading
+import tkinter as tk
+from tkinter.scrolledtext import ScrolledText
+
+# --- Force Admin Elevation ---
+def is_admin():
+    try:
+        return ctypes.windll.shell32.IsUserAnAdmin()
+    except:
+        return False
+
+if not is_admin():
+    ctypes.windll.shell32.ShellExecuteW(
+        None, "runas", sys.executable, __file__, None, 1
+    )
+    sys.exit()
+
+# --- PowerShell Script Definitions ---
+scripts = {
+    "bloatware": '''
+Write-Host "Removing Bloatware..."
+$appList = @(
+"Microsoft.3DBuilder","Microsoft.XboxGamingOverlay","Microsoft.XboxApp",
+"Microsoft.GetHelp","Microsoft.Getstarted","Microsoft.ZuneMusic",
+"Microsoft.ZuneVideo","Microsoft.WindowsFeedbackHub","Microsoft.MSPaint",
+"Microsoft.SkypeApp","Microsoft.People","Microsoft.MixedReality.Portal"
+)
+foreach ($app in $appList) {
+    Write-Host "Attempting to remove $app"
+    Get-AppxPackage -Name $app -AllUsers | Remove-AppxPackage -ErrorAction SilentlyContinue
+    Get-AppxProvisionedPackage -Online | Where DisplayName -EQ $app | Remove-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue
+}
+''',
+
+    "telemetry": '''
+Write-Host "Disabling Telemetry..."
+Stop-Service -Name DiagTrack -Force -ErrorAction SilentlyContinue
+Set-Service -Name DiagTrack -StartupType Disabled
+New-Item -Path "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\DataCollection" -Force | Out-Null
+Set-ItemProperty -Path "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\DataCollection" -Name AllowTelemetry -Value 0
+''',
+
+    "cortana": '''
+Write-Host "Disabling Cortana..."
+New-Item -Path "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\Windows Search" -Force | Out-Null
+Set-ItemProperty -Path "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\Windows Search" -Name AllowCortana -Value 0
+''',
+
+    "services": '''
+Write-Host "Disabling Unused Services..."
+$services = @("Fax", "RemoteRegistry", "XblGameSave", "RetailDemo")
+foreach ($svc in $services) {
+    Write-Host "Disabling $svc..."
+    Stop-Service -Name $svc -Force -ErrorAction SilentlyContinue
+    Set-Service -Name $svc -StartupType Disabled
+}
+''',
+
+    "power": '''
+Write-Host "Enabling High Performance Power Plan..."
+try {
+    powercfg -setactive SCHEME_MIN
+    Write-Host "High Performance power plan activated."
+} catch {
+    Write-Host "Unable to apply power plan. Not supported on this system."
+}
+''',
+
+    "onedrive": '''
+Write-Host "Removing OneDrive..."
+try {
+    taskkill /f /im OneDrive.exe
+} catch {
+    Write-Host "OneDrive process not running."
+}
+$path = "$env:SystemRoot\\SysWOW64\\OneDriveSetup.exe"
+if (Test-Path $path) {
+    & $path /uninstall
+    Remove-Item "$env:UserProfile\\OneDrive" -Recurse -Force -ErrorAction SilentlyContinue
+    Write-Host "OneDrive removal attempted."
+} else {
+    Write-Host "OneDrive setup executable not found. Already uninstalled?"
+}
+''',
+
+    "defender": '''
+Write-Host "Disabling Windows Defender..."
+try {
+    $DefenderStatus = Get-MpComputerStatus
+    if ($DefenderStatus.AntispywareEnabled -eq $true) {
+        Set-MpPreference -DisableRealtimeMonitoring $true
+        Set-MpPreference -DisableIOAVProtection $true
+        Set-MpPreference -DisableScriptScanning $true
+        Set-MpPreference -DisableBehaviorMonitoring $true
+        Write-Host "Defender settings updated."
+    } else {
+        Write-Host "Windows Defender already disabled or not present."
+    }
+} catch {
+    Write-Host "Windows Defender cmdlets not available. Already removed or blocked via policy."
+}
+''',
+
+    "updates": '''
+Write-Host "Blocking Windows Updates..."
+Stop-Service -Name wuauserv -Force
+Set-Service -Name wuauserv -StartupType Disabled
+New-Item -Path "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsUpdate\\AU" -Force | Out-Null
+Set-ItemProperty -Path "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsUpdate\\AU" -Name NoAutoUpdate -Value 1
+'''
+}
+
+# --- Run PowerShell Command and Log Output ---
+def run_powershell(script, label):
+    log.insert(tk.END, f"\n--- [{label.upper()}] ---\n", "header")
+    process = subprocess.Popen(
+        ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True
+    )
+    for line in process.stdout:
+        log.insert(tk.END, line)
+        log.see(tk.END)
+
+    process.wait()
+    if process.returncode == 0:
+        log.insert(tk.END, f"[{label}] completed successfully.\n\n", "success")
+    else:
+        log.insert(tk.END, f"[{label}] failed with exit code {process.returncode}.\n\n", "error")
+    log.see(tk.END)
+
+# --- Start Threaded Execution ---
+def apply_selected():
+    selected = [key for key, var in zip(scripts.keys(), variables) if var.get()]
+    if not selected:
+        log.insert(tk.END, "⚠️ Please select at least one action.\n")
+        return
+    threading.Thread(target=run_all, args=(selected,), daemon=True).start()
+
+def run_all(items):
+    for key in items:
+        run_powershell(scripts[key], key)
+
+# --- GUI Setup ---
+root = tk.Tk()
+root.title("Windows 10 Debloater (Verbose Admin Tool)")
+root.geometry("700x650")
+
+tk.Label(root, text="Select actions to apply:", font=("Arial", 12, "bold")).pack(pady=8)
+
+variables = []
+labels = [
+    "Remove Bloatware",
+    "Disable Telemetry",
+    "Disable Cortana",
+    "Disable Unused Services",
+    "Enable Ultimate Performance Plan",
+    "Remove OneDrive",
+    "Disable Windows Defender",
+    "Block Windows Updates"
+]
+
+for label in labels:
+    var = tk.BooleanVar()
+    chk = tk.Checkbutton(root, text=label, variable=var, font=("Arial", 10))
+    chk.pack(anchor="w", padx=20)
+    variables.append(var)
+
+tk.Button(root, text="Apply Selected Actions", command=apply_selected,
+          bg="#007ACC", fg="white", font=("Arial", 11, "bold")).pack(pady=12)
+
+log = ScrolledText(root, height=25, wrap=tk.WORD, font=("Consolas", 9))
+log.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+
+log.tag_config("success", foreground="green")
+log.tag_config("error", foreground="red")
+log.tag_config("header", foreground="blue", font=("Consolas", 10, "bold"))
+
+root.mainloop()
+```
 
 #### Key Actions it Performs:
 - Removes bloatware apps (Xbox, Zune, FeedbackHub, Paint3D, etc.)
@@ -431,14 +625,11 @@ Use the provided Python script: `debloat_gui_verbose.py`, which launches a GUI t
   - Automatic Windows Updates
 - Sets system to **High Performance Power Plan**
 
+
 #### How to Use:
 1. Transfer `debloat_gui_verbose.py` to the Windows VM
 2. Double-click to run (script will auto-elevate as admin)
-3. Select all desired actions in the GUI and click **“Apply”**
-
-> 💡 Ensure Python is installed (can be via Microsoft Store or standalone installer). You may also want to take a snapshot just before this step to roll back if needed.
-
-
+3. Select all desired actions in the GUI and click **“Apply”** 
 
 ---
 
@@ -450,7 +641,7 @@ These quick diagnostics help resolve common misconfigurations:
 - **Check VPN connection on Ubuntu:**
   ```bash
   nordvpn status
-````
+`
 
 * **Verify that the Windows VM can reach the Ubuntu Gateway, access the internet, and route traffic through the NordVPN tunnel as intended.
   ```bash

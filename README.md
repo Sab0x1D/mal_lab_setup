@@ -1,5 +1,7 @@
-# Malware Lab Environment Setup [Ubuntu-gateway | Windows11-lab]
-![](/images/img5.png)
+<h1 align="center">Malware Lab Environment Setup [Ubuntu-gateway | Windows11-lab]</h1>
+<p align="center">
+          <img src="images/img5.png" alt="Malware Lab Banner">
+</p>
 
 > **Note:** This gateway configuration is intended for malware analysts and researchers who prefer to work with *live malware samples* in order to capture real IOCs, observe C2 behavior, and conduct full traffic analysis.  
 >

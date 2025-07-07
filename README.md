@@ -1,5 +1,7 @@
-<h1 align="center">Malware Lab Environment Setup</h1>
-<h2 align="center">[Ubuntu-gateway | Windows11-lab]</h2>
+<h1 align="center">
+          Malware Lab Environment Setup
+          [Ubuntu-gateway | Windows11-lab]
+</h1>
 <p align="center">
           <img src="images/img5.png" alt="Malware Lab Banner">
 </p>
